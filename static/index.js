@@ -1,13 +1,18 @@
-$(document).ready(function() {
-  var images = [];
 
+function drawImages() {
+  var images = [];
   $.getJSON('images')
     .success(function(data) {
       images = data;
 
-      var list = $("body").append('<ul></ul>').find('ul');
-      _.forEach(_.first(images, 5), function(image) {
-        list.append('<li><img width="200" src="image/' + image.key + '"></img></li>');
+      var template = Handlebars.compile($("#image-template").html());
+      _.forEach(_.first(data, 50), function(image) {
+        image.width = 200;
+        $('#gallery').append(template(image));
       });
     })
+}
+
+$(document).ready(function() {
+  drawImages();
 });

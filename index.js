@@ -2,9 +2,13 @@ var
   http = require('http'),
   router = require('router'),
   route = router(),
-  s3 = require('./lib/s3'),
-  list = s3.list,
-  get = s3.get,
+  cache = require('./lib/cache'),
+  dots = require('./lib/dots'),
+  list = cache.list,
+  get = cache.get,
+  keys = cache.keys,
+  aggregate = require('./lib/aggregate'),
+  url = require('url'),
   static = require('./lib/static');
 
 function setContentType(res, contentType) {
@@ -18,34 +22,53 @@ route.get('/images', function(req, res) {
     'Content-Type': 'application/json',
     'Last-Modified': new Date().toString()
   });
-  
-  if(req.headers['if-modified-since']) {
+
+  if (req.headers['if-modified-since']) {
     var dt = Date.parse(req.headers['if-modified-since']);
-    console.log(dt);
-    if(new Date().getTime() - dt < 360000) {
+    if (new Date().getTime() - dt < 60 * 1000 * 1000) {
       console.log('using cache for data');
       res.writeHead(304);
       return res.end();
     }
   }
+  return keys()
+    .pipe(aggregate.each())
+    .pipe(res);
+});
 
-  return list()
+route.post('/images/refresh', function(req, res) {
+  cache.refresh();
+  return res.end();
+});
+
+route.get('/months', function(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'application/json',
+    'Last-Modified': new Date().toString()
+  });
+
+  return cache.keys()
+    .pipe(aggregate.month())
     .pipe(res);
 });
 
 route.get('/image/:year/:month/:image', function(req, res) {
-  if(req.headers['if-none-match'] === 'etag') {
+  var width = +(url.parse(req.url, true).query.width || 50);
+  if (req.headers['if-none-match'] === ('etag:w' + width)) {
     console.log('using cache:', req.params.image);
     res.writeHead(304);
     return res.end();
   }
 
+  console.log('downloading:', req.params.image);
+
   res.writeHead(200, {
     'Content-Type': 'image/jpeg',
     'Last-Modified': new Date().toString(),
-    'Etag': 'etag' 
+    'Etag': 'etag:w' + width
   });
-  return get(req.params.year, req.params.month, req.params.image)
+  return cache
+    .get(req.params.year, req.params.month, req.params.image, width)
     .pipe(res);
 });
 
@@ -57,6 +80,11 @@ route.get('/', function(req, res) {
 route.get('/index.js', function(req, res) {
   setContentType(res, 'application/x-javascript');
   return static('index.js').pipe(res);
+});
+
+route.get('/index.css', function(req, res) {
+  setContentType(res, 'text/css');
+  return static('index.css').pipe(res);
 });
 
 http
